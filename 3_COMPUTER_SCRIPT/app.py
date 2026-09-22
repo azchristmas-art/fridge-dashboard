@@ -1,0 +1,318 @@
+import sqlite3
+import os
+from flask import Flask, request, jsonify, render_template
+from dotenv import load_dotenv
+
+# 1. Load the settings menu
+load_dotenv()
+
+app = Flask(__name__)
+DB_FILE = "fridge_monitor.db"
+
+# Force Flask to reload HTML templates immediately whenever they change
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+
+# Force the browser to NEVER cache responses during development
+@app.after_request
+def add_cache_control_headers(response):
+    response.headers["Cache-Control"] = (
+        "no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0"
+    )
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "-1"
+    return response
+
+
+def get_db_connection():
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS readings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            temperature REAL NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_name TEXT UNIQUE NOT NULL,
+            device_type TEXT NOT NULL,
+            sort_order INTEGER NOT NULL
+        )
+    """
+    )
+
+    cursor.execute("SELECT COUNT(*) as count FROM devices")
+    if cursor.fetchone()["count"] == 0:
+        defaults = [
+            ("FRIDGE_01", "FRIDGE", 1),
+            ("FRIDGE_02", "FRIDGE", 2),
+            ("FISH_FRIDGE", "FISH", 3),
+            ("FREEZER_01", "FREEZER", 4),
+        ]
+        cursor.executemany(
+            "INSERT INTO devices (device_name, device_type, sort_order) VALUES (?, ?, ?)",
+            defaults,
+        )
+
+    conn.commit()
+    conn.close()
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    return jsonify({
+        "THRESHOLD_FRIDGE": float(os.getenv("THRESHOLD_FRIDGE", 6.0)),
+        "THRESHOLD_FISH": float(os.getenv("THRESHOLD_FISH", -3.0)),
+        "THRESHOLD_FREEZER": float(os.getenv("THRESHOLD_FREEZER", -10.0)),
+        "ALERT_DELAY_HOURS": int(os.getenv("ALERT_DELAY_HOURS", 2)),
+    })
+
+
+@app.route("/api/devices", methods=["GET"])
+def get_devices():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return jsonify([dict(ix) for ix in rows])
+
+
+@app.route("/api/devices/add", methods=["POST"])
+def add_device():
+    data = request.get_json(silent=True)
+    if not data or "device_name" not in data or "device_type" not in data:
+        return jsonify({"status": "error"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT MAX(sort_order) as max_order FROM devices")
+    max_order = cursor.fetchone()["max_order"] or 0
+
+    try:
+        cursor.execute(
+            "INSERT INTO devices (device_name, device_type, sort_order) VALUES (?, ?, ?)",
+            (data["device_name"].upper(), data["device_type"], max_order + 1),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass
+
+    conn.close()
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/devices/reorder", methods=["POST"])
+def reorder_devices():
+    data = request.get_json(silent=True)
+    if not data or "order" not in data:
+        return jsonify({"status": "error"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    for index, device_name in enumerate(data["order"]):
+        cursor.execute(
+            "UPDATE devices SET sort_order = ? WHERE device_name = ?",
+            (index + 1, device_name),
+        )
+
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
+
+
+@app.route("/api/readings", methods=["GET"])
+def get_readings():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT device_id, temperature, timestamp FROM readings ORDER BY id DESC LIMIT 20"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        results.append({
+            "device_id": row["device_id"],
+            "temperature": row["temperature"],
+            "timestamp": row["timestamp"],
+        })
+    return jsonify(results)
+
+
+@app.route("/api/latest", methods=["GET"])
+def get_latest():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT device_id, temperature, timestamp 
+        FROM readings 
+        WHERE id IN (SELECT MAX(id) FROM readings GROUP BY device_id)
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    results = [
+        {
+            "device_id": row["device_id"],
+            "temperature": row["temperature"],
+            "timestamp": row["timestamp"],
+        }
+        for row in rows
+    ]
+    return jsonify(results)
+
+
+@app.route("/api/today", methods=["GET"])
+def get_today():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT device_id, temperature, timestamp 
+        FROM readings 
+        WHERE date(timestamp) = date('now', 'localtime') 
+        ORDER BY timestamp ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    results = [
+        {
+            "device_id": row["device_id"],
+            "temperature": row["temperature"],
+            "timestamp": row["timestamp"],
+        }
+        for row in rows
+    ]
+    return jsonify(results)
+
+
+@app.route("/api/history/<timeframe>/<device_id>", methods=["GET"])
+def get_history(timeframe, device_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    days = 7 if timeframe == "week" else 30
+    
+    cursor.execute(f"""
+        SELECT 
+            date(timestamp) as reading_date,
+            AVG(temperature) as avg_temp,
+            MAX(temperature) as max_temp,
+            MIN(temperature) as min_temp
+        FROM readings
+        WHERE device_id = ? AND timestamp >= date('now', '-{days} days')
+        GROUP BY date(timestamp)
+        ORDER BY date(timestamp) ASC
+    """, (device_id,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    results = [
+        {
+            "date": row["reading_date"],
+            "avg": round(row["avg_temp"], 2),
+            "high": round(row["max_temp"], 2),
+            "low": round(row["min_temp"], 2)
+        }
+        for row in rows
+    ]
+    return jsonify(results)
+
+
+@app.route("/api/diagnostics/overall", methods=["GET"])
+def get_diagnostics_overall():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT device_name, device_type FROM devices ORDER BY sort_order ASC")
+    devices = cursor.fetchall()
+    
+    thresh_fridge = float(os.getenv("THRESHOLD_FRIDGE", 6.0))
+    thresh_fish = float(os.getenv("THRESHOLD_FISH", -3.0))
+    thresh_freezer = float(os.getenv("THRESHOLD_FREEZER", -10.0))
+    
+    results = []
+    for dev in devices:
+        d_name = dev["device_name"]
+        d_type = dev["device_type"]
+        
+        threshold = thresh_fridge
+        if d_type == "FISH":
+            threshold = thresh_fish
+        elif d_type == "FREEZER":
+            threshold = thresh_freezer
+            
+        cursor.execute("""
+            SELECT 
+                COUNT(CASE WHEN temperature > ? THEN 1 END) as breach_readings,
+                COUNT(CASE WHEN temperature > ? AND (prev_temp <= ? OR prev_temp IS NULL) THEN 1 END) as breach_episodes
+            FROM (
+                SELECT temperature, LAG(temperature) OVER (ORDER BY timestamp) as prev_temp
+                FROM readings
+                WHERE device_id = ?
+            )
+        """, (threshold, threshold, threshold, d_name))
+        
+        row = cursor.fetchone()
+        breach_mins = (row["breach_readings"] or 0) * 10
+        breach_count = row["breach_episodes"] or 0
+        
+        results.append({
+            "name": d_name,
+            "type": d_type,
+            "count": breach_count,
+            "totalMins": breach_mins
+        })
+        
+    conn.close()
+    results.sort(key=lambda x: x["totalMins"], reverse=True)
+    return jsonify(results)
+
+
+@app.route("/api/log", methods=["POST"])
+def log_reading():
+    data = request.get_json(silent=True)
+    if not data or "device_id" not in data or "temperature" not in data:
+        return jsonify({"status": "error", "message": "Invalid payload"}), 400
+
+    device_id = data["device_id"]
+    temperature = float(data["temperature"])
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO readings (device_id, temperature) VALUES (?, ?)",
+        (device_id, temperature),
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "success"}), 201
+
+
+if __name__ == "__main__":
+    init_db()
+    print("Database initialised. Starting the web server...")
+    app.run(host="0.0.0.0", port=5001, debug=True)
