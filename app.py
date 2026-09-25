@@ -369,7 +369,7 @@ def log_reading():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Dynamic auto-discovery: register unknown sensor IDs automatically
+    # Auto-discovery: automatically register any unknown sensor IDs
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
