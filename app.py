@@ -59,34 +59,33 @@ def init_db():
     """
     )
 
-    # Ensure display_name column exists
+    # Ensure display_name column exists for existing databases
     cursor.execute("PRAGMA table_info(devices)")
     columns = [col["name"] for col in cursor.fetchall()]
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
 
-    # Complete purge of legacy units and the stale test reading
-    cursor.execute("DELETE FROM readings WHERE device_id = 'SAUCE_FRIDGE'")
-    
-    legacy_defaults = [
-        "TEST_FRIDGE", "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
+    # The 27 simulated units from seed_history.py to purge completely
+    legacy_seeded_devices = [
+        "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
         "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
         "BEER_FRIDGE", "JUICE_FRIDGE", "CANS", "BLIZZARD_GRILL", "BLIZZARD_FREEZER_GRILL",
         "BLIZZARD_PIE", "BLIZZARD_CHEESE", "BLIZZARD_FREEZER", "FOSTERS_FREEZER",
         "3_DOOR_BLIZARD", "FISH_FRIDGE", "TEFCOLD_FREEZER", "FOSTERS_FRIDGE",
         "WHITE_FRIDGE", "WALK_IN_FREEZER", "WALK_IN_FRIDGE", "ICE_CREAM_CHEST",
-        "PUDDING_CHEST", "MAIN_KITCHEN_CHEST"
+        "PUDDING_CHEST", "MAIN_KITCHEN_CHEST", "TEST_FRIDGE"
     ]
-    cursor.execute(
-        f"DELETE FROM devices WHERE device_name IN ({','.join(['?']*len(legacy_defaults))})",
-        legacy_defaults
-    )
+
+    # Delete all simulated readings and device entries
+    placeholders = ",".join(["?"] * len(legacy_seeded_devices))
+    cursor.execute(f"DELETE FROM readings WHERE device_id IN ({placeholders})", legacy_seeded_devices)
+    cursor.execute(f"DELETE FROM devices WHERE device_name IN ({placeholders})", legacy_seeded_devices)
 
     conn.commit()
     conn.close()
 
 
-# Initialise database immediately on boot
+# Initialise database immediately on startup
 init_db()
 
 
@@ -369,7 +368,7 @@ def log_reading():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Auto-discovery: automatically register any unknown sensor IDs
+    # Dynamic auto-discovery: register unknown sensor IDs automatically
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
