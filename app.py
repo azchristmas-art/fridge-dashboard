@@ -30,6 +30,17 @@ def get_db_connection():
     return conn
 
 
+LEGACY_DEVICES = [
+    "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
+    "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
+    "BEER_FRIDGE", "JUICE_FRIDGE", "CANS", "BLIZZARD_GRILL", "BLIZZARD_FREEZER_GRILL",
+    "BLIZZARD_PIE", "BLIZZARD_CHEESE", "BLIZZARD_FREEZER", "FOSTERS_FREEZER",
+    "3_DOOR_BLIZARD", "FISH_FRIDGE", "TEFCOLD_FREEZER", "FOSTERS_FRIDGE",
+    "WHITE_FRIDGE", "WALK_IN_FREEZER", "WALK_IN_FRIDGE", "ICE_CREAM_CHEST",
+    "PUDDING_CHEST", "MAIN_KITCHEN_CHEST", "TEST_FRIDGE"
+]
+
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -65,19 +76,10 @@ def init_db():
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
 
-    # Wipe any lingering legacy mock data
-    legacy_defaults = [
-        "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
-        "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
-        "BEER_FRIDGE", "JUICE_FRIDGE", "CANS", "BLIZZARD_GRILL", "BLIZZARD_FREEZER_GRILL",
-        "BLIZZARD_PIE", "BLIZZARD_CHEESE", "BLIZZARD_FREEZER", "FOSTERS_FREEZER",
-        "3_DOOR_BLIZARD", "FISH_FRIDGE", "TEFCOLD_FREEZER", "FOSTERS_FRIDGE",
-        "WHITE_FRIDGE", "WALK_IN_FREEZER", "WALK_IN_FRIDGE", "ICE_CREAM_CHEST",
-        "PUDDING_CHEST", "MAIN_KITCHEN_CHEST", "TEST_FRIDGE"
-    ]
-    placeholders = ",".join(["?"] * len(legacy_defaults))
-    cursor.execute(f"DELETE FROM readings WHERE device_id IN ({placeholders})", legacy_defaults)
-    cursor.execute(f"DELETE FROM devices WHERE device_name IN ({placeholders})", legacy_defaults)
+    # Complete purge of legacy mock fridges
+    for item in LEGACY_DEVICES:
+        cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
+        cursor.execute("DELETE FROM devices WHERE device_name = ?", (item,))
 
     conn.commit()
     conn.close()
@@ -106,6 +108,9 @@ def get_config():
 def get_devices():
     conn = get_db_connection()
     cursor = conn.cursor()
+    for item in LEGACY_DEVICES:
+        cursor.execute("DELETE FROM devices WHERE device_name = ?", (item,))
+    conn.commit()
     cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
     rows = cursor.fetchall()
     conn.close()
@@ -198,6 +203,9 @@ def reorder_devices():
 def get_readings():
     conn = get_db_connection()
     cursor = conn.cursor()
+    for item in LEGACY_DEVICES:
+        cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
+    conn.commit()
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp
         FROM readings r
@@ -221,6 +229,9 @@ def get_readings():
 def get_latest():
     conn = get_db_connection()
     cursor = conn.cursor()
+    for item in LEGACY_DEVICES:
+        cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
+    conn.commit()
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, 
                COALESCE(d.device_type, 'FRIDGE') as device_type, r.temperature, r.timestamp 
@@ -247,6 +258,9 @@ def get_latest():
 def get_today():
     conn = get_db_connection()
     cursor = conn.cursor()
+    for item in LEGACY_DEVICES:
+        cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
+    conn.commit()
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp 
         FROM readings r
@@ -361,8 +375,11 @@ def log_reading():
         return jsonify({"status": "error", "message": "Invalid payload"}), 400
 
     device_id = data["device_id"].strip().upper()
-    temperature = float(data["temperature"])
+    
+    if device_id in LEGACY_DEVICES:
+        return jsonify({"status": "ignored"}), 200
 
+    temperature = float(data["temperature"])
     conn = get_db_connection()
     cursor = conn.cursor()
 
