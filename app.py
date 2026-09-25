@@ -59,17 +59,15 @@ def init_db():
     """
     )
 
-    # Ensure display_name column exists for existing installations
+    # Ensure display_name column exists
     cursor.execute("PRAGMA table_info(devices)")
     columns = [col["name"] for col in cursor.fetchall()]
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
 
-    # Complete purge: wipe the legacy test reading and remove SAUCE_FRIDGE
+    # Complete purge of legacy units and the stale test reading
     cursor.execute("DELETE FROM readings WHERE device_id = 'SAUCE_FRIDGE'")
-    cursor.execute("DELETE FROM devices WHERE device_name = 'SAUCE_FRIDGE'")
-
-    # Purge any remaining hardcoded units so only live discovered units display
+    
     legacy_defaults = [
         "TEST_FRIDGE", "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
         "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
@@ -88,7 +86,7 @@ def init_db():
     conn.close()
 
 
-# Execute database initialisation on startup so Gunicorn runs it automatically
+# Initialise database immediately on boot
 init_db()
 
 
@@ -371,7 +369,7 @@ def log_reading():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Dynamic auto-discovery: register any unknown sensor IDs automatically
+    # Dynamic auto-discovery: register unknown sensor IDs automatically
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
