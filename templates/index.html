@@ -7,27 +7,31 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background-color: #f4f6f9; margin: 0; padding: 0; display: flex; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 0; display: flex; min-height: 100vh; }
         
-        .sidebar { width: 250px; background-color: #2c3e50; color: white; min-height: 100vh; padding: 20px 0; position: fixed; }
-        .sidebar h2 { text-align: center; margin-bottom: 30px; font-size: 1.2em; padding: 0 10px; }
-        .nav-item { padding: 15px 20px; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; }
+        /* Desktop Sidebar Navigation */
+        .sidebar { width: 250px; background-color: #2c3e50; color: white; min-height: 100vh; padding: 20px 0; position: fixed; left: 0; top: 0; z-index: 100; }
+        .sidebar h2 { text-align: center; margin: 0 0 25px 0; font-size: 1.15em; padding: 0 15px; letter-spacing: 0.5px; }
+        .sidebar-nav { display: flex; flex-direction: column; }
+        .nav-item { padding: 14px 20px; cursor: pointer; transition: 0.2s; border-left: 4px solid transparent; font-size: 0.95em; }
         .nav-item:hover { background-color: #34495e; }
         .nav-item.active { background-color: #34495e; border-left-color: #4caf50; font-weight: bold; }
         
-        .content { flex: 1; padding: 30px; margin-left: 250px; box-sizing: border-box; }
+        /* Main Content View */
+        .content { flex: 1; padding: 30px; margin-left: 250px; max-width: 1200px; }
         .view-section { display: none; }
         .view-section.active { display: block; }
-        h1 { color: #333; margin-top: 0; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 25px; }
+        h1 { color: #2c3e50; margin-top: 0; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 25px; font-size: 1.6em; }
         
         /* Primary Status Grid */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
         .summary-card { padding: 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e0e0e0; transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.04); background: white; overflow: hidden; }
-        .summary-card:hover { transform: translateY(-4px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
+        .summary-card:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.08); }
         .summary-info { flex: 1; min-width: 0; margin-right: 15px; }
         .summary-device { font-weight: bold; font-size: 1.2em; color: #2c3e50; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .summary-hw-id { font-size: 0.8em; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
-        .summary-temp { font-size: 1.6em; font-weight: bold; }
+        .summary-temp { font-size: 1.7em; font-weight: bold; }
         .summary-pill { flex-shrink: 0; padding: 6px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
         
         .status-green { border-left: 6px solid #4caf50; }
@@ -44,64 +48,84 @@
         .close-btn { position: absolute; top: 15px; right: 20px; font-size: 1.8em; cursor: pointer; color: #888; line-height: 1; transition: 0.2s; }
         .close-btn:hover { color: #333; }
         
-        /* Modal Interior Stats */
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-bottom: 15px; }
-        .modal-device-name { font-size: 1.5em; font-weight: bold; margin: 0; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 15px; }
+        .modal-device-name { font-size: 1.4em; font-weight: bold; margin: 0; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-right: 15px; }
         .modal-time-text { font-size: 0.9em; color: #999; flex-shrink: 0; }
-        .modal-temp-main { font-size: 3.5em; font-weight: bold; margin: 10px 0 20px 0; }
+        .modal-temp-main { font-size: 3.2em; font-weight: bold; margin: 10px 0 20px 0; }
         
         .modal-tabs, .diag-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid #f1f3f5; padding-bottom: 10px; }
-        .tab-btn { padding: 8px 16px; border: none; background: none; font-size: 1em; font-weight: bold; color: #888; cursor: pointer; border-radius: 6px; transition: 0.2s; }
+        .tab-btn { padding: 8px 16px; border: none; background: none; font-size: 0.95em; font-weight: bold; color: #888; cursor: pointer; border-radius: 6px; transition: 0.2s; }
         .tab-btn:hover { background: #f8f9fa; color: #333; }
         .tab-btn.active { background: #1e88e5; color: white; }
 
-        .modal-stats { display: flex; justify-content: space-between; font-size: 1.1em; color: #555; margin-bottom: 25px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
-        .chart-container { height: 280px; width: 100%; position: relative; }
+        .modal-stats { display: flex; justify-content: space-between; font-size: 1.05em; color: #555; margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .chart-container { height: 260px; width: 100%; position: relative; }
         
         /* Multi-Alert List Styles */
-        .alert-modal-card { background: white; padding: 30px; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border-top: 8px solid #d32f2f; }
-        .alert-modal-card h2 { color: #d32f2f; margin-top: 0; margin-bottom: 5px; font-size: 1.6em; }
+        .alert-modal-card { background: white; padding: 25px; border-radius: 12px; width: 92%; max-width: 500px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); border-top: 8px solid #d32f2f; }
+        .alert-modal-card h2 { color: #d32f2f; margin-top: 0; margin-bottom: 5px; font-size: 1.5em; }
         .alert-modal-card p { color: #666; font-size: 0.95em; margin-bottom: 20px; }
-        .alert-list-container { max-height: 300px; overflow-y: auto; margin-bottom: 25px; }
+        .alert-list-container { max-height: 280px; overflow-y: auto; margin-bottom: 20px; }
         .alert-list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: #ffebee; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #d32f2f; }
-        .alert-item-name { font-weight: bold; color: #c62828; font-size: 1.1em; }
-        .alert-item-details { text-align: right; color: #b71c1c; font-size: 0.9em; }
-        .alert-item-temp { font-size: 1.3em; font-weight: bold; display: block; }
-        .ack-btn { background-color: #d32f2f; color: white; border: none; padding: 15px; width: 100%; font-size: 1.1em; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .alert-item-name { font-weight: bold; color: #c62828; font-size: 1.05em; }
+        .alert-item-details { text-align: right; color: #b71c1c; font-size: 0.85em; }
+        .alert-item-temp { font-size: 1.25em; font-weight: bold; display: block; }
+        .ack-btn { background-color: #d32f2f; color: white; border: none; padding: 14px; width: 100%; font-size: 1.05em; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .ack-btn:hover { background-color: #b71c1c; }
 
-        /* Neutral Diagnostics Styles */
-        .diag-item { background: white; padding: 20px; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .diag-item-name { font-weight: bold; font-size: 1.2em; color: #444; }
-        .diag-item-type { color: #888; font-size: 0.9em; margin-left: 10px; }
+        /* Diagnostics Styles */
+        .diag-item { background: white; padding: 18px; border-radius: 8px; border: 1px solid #e0e0e0; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .diag-item-name { font-weight: bold; font-size: 1.15em; color: #444; }
+        .diag-item-type { color: #888; font-size: 0.85em; margin-left: 8px; }
         .diag-item-stats { text-align: right; color: #555; }
-        .diag-stat-primary { font-size: 1.1em; margin-bottom: 4px; }
-        .diag-stat-secondary { font-size: 0.9em; color: #777; }
+        .diag-stat-primary { font-size: 1.05em; margin-bottom: 4px; }
+        .diag-stat-secondary { font-size: 0.85em; color: #777; }
         
-        .settings-panel { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; }
+        /* Settings Panels */
+        .settings-panel { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 650px; margin-bottom: 25px; border: 1px solid #e2e8f0; }
         .device-list { list-style: none; padding: 0; margin-top: 15px; }
-        .device-item { padding: 15px; background: #f8f9fa; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
+        .device-item { padding: 14px; background: #f8f9fa; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
         .device-item:active { cursor: grabbing; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 6px; color: #333; }
-        input, select, button { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 1em; }
-        button { background-color: #1e88e5; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin-top: 10px; }
+        input, select, button { width: 100%; padding: 11px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 1em; }
+        button { background-color: #1e88e5; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin-top: 5px; }
         button:hover { background-color: #1565c0; }
         
-        /* Danger Zone Styles */
-        .danger-panel { margin-top: 30px; border: 1px solid #ffcdd2; background: #fffaf0; }
-        .btn-danger { background-color: #d32f2f; }
-        .btn-danger:hover { background-color: #b71c1c; }
-        .btn-secondary { background-color: #757575; }
-        .btn-secondary:hover { background-color: #616161; }
+        /* System Maintenance Panel */
+        .maintenance-panel { border: 1px solid #cbd5e1; background: #ffffff; }
+        .btn-maintenance { background-color: #475569; }
+        .btn-maintenance:hover { background-color: #334155; }
+        .btn-danger-confirm { background-color: #dc2626; }
+        .btn-danger-confirm:hover { background-color: #b91c1c; }
+        .btn-secondary { background-color: #94a3b8; }
+        .btn-secondary:hover { background-color: #64748b; }
+
+        /* Responsive Mobile Layout (Phones & Tablets) */
+        @media (max-width: 768px) {
+            body { flex-direction: column; }
+            .sidebar { position: sticky; top: 0; width: 100%; min-height: auto; padding: 10px 0 0 0; box-shadow: 0 2px 10px rgba(0,0,0,0.15); }
+            .sidebar h2 { font-size: 1.05em; margin: 4px 0 10px 0; }
+            .sidebar-nav { flex-direction: row; justify-content: space-around; border-top: 1px solid #34495e; }
+            .nav-item { flex: 1; text-align: center; padding: 12px 6px; font-size: 0.85em; border-left: none; border-bottom: 3px solid transparent; }
+            .nav-item.active { border-left-color: transparent; border-bottom-color: #4caf50; background-color: #34495e; }
+            .content { margin-left: 0; padding: 15px; width: 100%; }
+            .summary-grid { grid-template-columns: 1fr; gap: 12px; }
+            .settings-panel { padding: 18px; width: 100%; }
+            .diag-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .diag-item-stats { text-align: left; }
+            .modal-card { width: 95%; padding: 18px; }
+        }
     </style>
 </head>
 <body>
     <div class="sidebar">
         <h2>Commercial Fridge Monitor</h2>
-        <div class="nav-item active" onclick="switchView('view-fridges', this)">Fridges Dashboard</div>
-        <div class="nav-item" onclick="switchView('view-diagnostics', this)">System Diagnostics</div>
-        <div class="nav-item" onclick="switchView('view-settings', this)">Settings</div>
+        <div class="sidebar-nav">
+            <div class="nav-item active" onclick="switchView('view-fridges', this)">Fridges</div>
+            <div class="nav-item" onclick="switchView('view-diagnostics', this)">Diagnostics</div>
+            <div class="nav-item" onclick="switchView('view-settings', this)">Settings</div>
+        </div>
     </div>
 
     <div class="content">
@@ -158,12 +182,12 @@
                 <button onclick="addDevice()">Save Sensor Link</button>
             </div>
 
-            <div class="settings-panel danger-panel">
-                <h3 style="color: #c62828;">Danger Zone</h3>
-                <p style="color: #666; font-size: 0.9em; line-height: 1.4;">
-                    Clear out diagnostic history, graphs, and telemetry logs to start fresh before deploying on-site.
+            <div class="settings-panel maintenance-panel">
+                <h3 style="color: #1e293b; margin-top: 0;">System Maintenance</h3>
+                <p style="color: #64748b; font-size: 0.9em; line-height: 1.5; margin-bottom: 20px;">
+                    Clear out diagnostic logs, graphs, and telemetry history to establish a clean baseline before deployment.
                 </p>
-                <button class="btn-danger" onclick="openResetModal()">Master Reset All Telemetry Data</button>
+                <button class="btn-maintenance" onclick="openResetModal()">Reset Telemetry Logs</button>
             </div>
         </div>
     </div>
@@ -208,16 +232,16 @@
 
     <!-- Master Reset Confirmation Modal -->
     <div id="reset-modal" class="modal-overlay" onclick="closeResetModal(event)">
-        <div class="modal-card" style="max-width: 480px; border-top: 6px solid #d32f2f;" onclick="event.stopPropagation()">
+        <div class="modal-card" style="max-width: 480px; border-top: 6px solid #475569;" onclick="event.stopPropagation()">
             <span class="close-btn" onclick="closeResetModal(event)">&times;</span>
-            <h2 style="color: #d32f2f; margin-top: 0;">Master Data Reset</h2>
-            <p style="color: #444; font-size: 0.95em; line-height: 1.5;">
-                This action will permanently delete all temperature readings and historical telemetry logs from the database.
+            <h2 style="color: #1e293b; margin-top: 0;">Reset Telemetry Logs</h2>
+            <p style="color: #475569; font-size: 0.95em; line-height: 1.5;">
+                This action will delete all recorded temperature readings and historical telemetry logs. Sensor links and friendly names will be preserved.
             </p>
-            <div style="background: #ffebee; border-left: 4px solid #d32f2f; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
-                <strong style="color: #c62828; font-size: 0.9em;">Safety Verification:</strong>
-                <p style="color: #b71c1c; font-size: 0.85em; margin: 5px 0 0 0;">
-                    To confirm this action, type <strong>DELETE</strong> into the field below:
+            <div style="background: #f1f5f9; border-left: 4px solid #475569; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+                <strong style="color: #334155; font-size: 0.9em;">Verification Check:</strong>
+                <p style="color: #475569; font-size: 0.85em; margin: 5px 0 0 0;">
+                    Type <strong>DELETE</strong> into the field below to confirm:
                 </p>
             </div>
             <div class="form-group">
@@ -225,7 +249,7 @@
             </div>
             <div style="display: flex; gap: 10px; margin-top: 15px;">
                 <button class="btn-secondary" style="flex: 1;" onclick="closeResetModal()">Cancel</button>
-                <button class="btn-danger" style="flex: 1;" onclick="confirmMasterReset()">Wipe Telemetry</button>
+                <button class="btn-danger-confirm" style="flex: 1;" onclick="confirmMasterReset()">Confirm Wipe</button>
             </div>
         </div>
     </div>
@@ -371,7 +395,6 @@
                 return;
             }
 
-            // 'Today' tab calculation
             let diagnostics = [];
             window.devicesList.forEach(dev => {
                 const deviceName = dev.device_name;
@@ -728,7 +751,6 @@
 
                     const deviceHistory = window.historyData.filter(d => d.device_id === deviceName);
                     
-                    // Continuous unbroken breach calculation
                     let isAlarm = false;
                     let durationStr = "--";
 
