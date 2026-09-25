@@ -30,11 +30,22 @@ def get_db_connection():
     return conn
 
 
+# Master list of legacy test data to forcefully block and purge
+LEGACY_GHOSTS = [
+    "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
+    "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
+    "BEER_FRIDGE", "JUICE_FRIDGE", "CANS", "BLIZZARD_GRILL", "BLIZZARD_FREEZER_GRILL",
+    "BLIZZARD_PIE", "BLIZZARD_CHEESE", "BLIZZARD_FREEZER", "FOSTERS_FREEZER",
+    "3_DOOR_BLIZARD", "FISH_FRIDGE", "TEFCOLD_FREEZER", "FOSTERS_FRIDGE",
+    "WHITE_FRIDGE", "WALK_IN_FREEZER", "WALK_IN_FRIDGE", "ICE_CREAM_CHEST",
+    "PUDDING_CHEST", "MAIN_KITCHEN_CHEST", "TEST_FRIDGE"
+]
+
+
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Table for historical readings
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS readings (
@@ -46,7 +57,6 @@ def init_db():
     """
     )
 
-    # Table for discovered hardware sensors and custom display aliases
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS devices (
@@ -59,21 +69,20 @@ def init_db():
     """
     )
 
-    # Ensure display_name column exists
     cursor.execute("PRAGMA table_info(devices)")
     columns = [col["name"] for col in cursor.fetchall()]
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
 
-    # Unconditional purge of the legacy test fridge and all mock data
-    cursor.execute("DELETE FROM readings WHERE device_id = 'SAUCE_FRIDGE'")
-    cursor.execute("DELETE FROM devices WHERE device_name = 'SAUCE_FRIDGE'")
+    # Aggressive database wipe of all legacy units
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
+    cursor.execute(f"DELETE FROM readings WHERE device_id IN ({placeholders})", LEGACY_GHOSTS)
+    cursor.execute(f"DELETE FROM devices WHERE device_name IN ({placeholders})", LEGACY_GHOSTS)
 
     conn.commit()
     conn.close()
 
 
-# Run initialisation on boot
 init_db()
 
 
@@ -96,10 +105,10 @@ def get_config():
 def get_devices():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Ensure SAUCE_FRIDGE is purged
-    cursor.execute("DELETE FROM devices WHERE device_name = 'SAUCE_FRIDGE'")
-    conn.commit()
-    cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
+    
+    # Hard firewall on outputting legacy units to the UI
+    cursor.execute(f"SELECT * FROM devices WHERE device_name NOT IN ({placeholders}) ORDER BY sort_order ASC", LEGACY_GHOSTS)
     rows = cursor.fetchall()
     conn.close()
     
@@ -191,15 +200,17 @@ def reorder_devices():
 def get_readings():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
+    cursor.execute(f"""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp
         FROM readings r
         LEFT JOIN devices d ON r.device_id = d.device_name
-        WHERE r.device_id != 'SAUCE_FRIDGE'
+        WHERE r.device_id NOT IN ({placeholders})
         ORDER BY r.id DESC LIMIT 20
-    """)
+    """, LEGACY_GHOSTS)
     rows = cursor.fetchall()
     conn.close()
+    
     results = []
     for row in rows:
         results.append({
@@ -215,17 +226,18 @@ def get_readings():
 def get_latest():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # Filter out SAUCE_FRIDGE completely
-    cursor.execute("""
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
+    cursor.execute(f"""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, 
                COALESCE(d.device_type, 'FRIDGE') as device_type, r.temperature, r.timestamp 
         FROM readings r
         LEFT JOIN devices d ON r.device_id = d.device_name
-        WHERE r.device_id != 'SAUCE_FRIDGE'
-          AND r.id IN (SELECT MAX(id) FROM readings WHERE device_id != 'SAUCE_FRIDGE' GROUP BY device_id)
-    """)
+        WHERE r.device_id NOT IN ({placeholders})
+          AND r.id IN (SELECT MAX(id) FROM readings GROUP BY device_id)
+    """, LEGACY_GHOSTS)
     rows = cursor.fetchall()
     conn.close()
+    
     results = [
         {
             "device_id": row["device_id"],
@@ -243,16 +255,18 @@ def get_latest():
 def get_today():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
+    cursor.execute(f"""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp 
         FROM readings r
         LEFT JOIN devices d ON r.device_id = d.device_name
-        WHERE r.device_id != 'SAUCE_FRIDGE'
+        WHERE r.device_id NOT IN ({placeholders}) 
           AND date(r.timestamp) = date('now', 'localtime') 
         ORDER BY r.timestamp ASC
-    """)
+    """, LEGACY_GHOSTS)
     rows = cursor.fetchall()
     conn.close()
+    
     results = [
         {
             "device_id": row["device_id"],
@@ -303,8 +317,14 @@ def get_history(timeframe, device_id):
 def get_diagnostics_overall():
     conn = get_db_connection()
     cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(LEGACY_GHOSTS))
     
-    cursor.execute("SELECT device_name, COALESCE(display_name, device_name) as display_name, device_type FROM devices WHERE device_name != 'SAUCE_FRIDGE' ORDER BY sort_order ASC")
+    cursor.execute(f"""
+        SELECT device_name, COALESCE(display_name, device_name) as display_name, device_type 
+        FROM devices 
+        WHERE device_name NOT IN ({placeholders}) 
+        ORDER BY sort_order ASC
+    """, LEGACY_GHOSTS)
     devices = cursor.fetchall()
     
     thresh_fridge = float(os.getenv("THRESHOLD_FRIDGE", 6.0))
@@ -358,16 +378,16 @@ def log_reading():
         return jsonify({"status": "error", "message": "Invalid payload"}), 400
 
     device_id = data["device_id"].strip().upper()
+    
+    # Reject ghost data from ever entering the DB again
+    if device_id in LEGACY_GHOSTS:
+        return jsonify({"status": "blocked_legacy_data"}), 200
+
     temperature = float(data["temperature"])
-
-    # Discard any incoming legacy mock test logs
-    if device_id == "SAUCE_FRIDGE":
-        return jsonify({"status": "ignored"}), 200
-
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Dynamic auto-discovery: register unknown sensor IDs automatically
+    # Dynamic auto-discovery
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
