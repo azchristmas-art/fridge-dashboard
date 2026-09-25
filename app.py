@@ -81,7 +81,7 @@ def index():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     return jsonify({
-        "THRESHOLD_FRIDGE": float(os.getenv("THRESHOLD_FRIDGE", 6.0)),
+        "THRESHOLD_FRIDGE": float(os.getenv("THRESHOLD_FRIDGE", 5.9)),
         "THRESHOLD_FISH": float(os.getenv("THRESHOLD_FISH", -3.0)),
         "THRESHOLD_FREEZER": float(os.getenv("THRESHOLD_FREEZER", -10.0)),
         "ALERT_DELAY_HOURS": int(os.getenv("ALERT_DELAY_HOURS", 2)),
@@ -296,7 +296,7 @@ def get_diagnostics_overall():
     cursor.execute("SELECT device_name, COALESCE(display_name, device_name) as display_name, device_type FROM devices ORDER BY sort_order ASC")
     devices = cursor.fetchall()
     
-    thresh_fridge = float(os.getenv("THRESHOLD_FRIDGE", 6.0))
+    thresh_fridge = float(os.getenv("THRESHOLD_FRIDGE", 5.9))
     thresh_fish = float(os.getenv("THRESHOLD_FISH", -3.0))
     thresh_freezer = float(os.getenv("THRESHOLD_FREEZER", -10.0))
     
