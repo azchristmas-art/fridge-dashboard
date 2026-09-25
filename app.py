@@ -64,14 +64,14 @@ def init_db():
     columns = [col["name"] for col in cursor.fetchall()]
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
-        cursor.execute("UPDATE devices SET display_name = device_name WHERE display_name IS NULL")
 
-    # Purge legacy mock reading for SAUCE_FRIDGE
+    # Complete purge: wipe the legacy test reading and remove SAUCE_FRIDGE
     cursor.execute("DELETE FROM readings WHERE device_id = 'SAUCE_FRIDGE'")
+    cursor.execute("DELETE FROM devices WHERE device_name = 'SAUCE_FRIDGE'")
 
-    # Purge legacy hardcoded default devices
+    # Purge any remaining hardcoded units so only live discovered units display
     legacy_defaults = [
-        "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
+        "TEST_FRIDGE", "CAKE_FREEZER", "ICE_CREAM_FREEZER", "CAKE_FRIDGE_GLASS", "PARLOUR_LEFT",
         "PARLOUR_RIGHT", "SAUCE_FRIDGE", "SAUCE_BOTTLE_FRIDGE", "WINE_FRIDGE",
         "BEER_FRIDGE", "JUICE_FRIDGE", "CANS", "BLIZZARD_GRILL", "BLIZZARD_FREEZER_GRILL",
         "BLIZZARD_PIE", "BLIZZARD_CHEESE", "BLIZZARD_FREEZER", "FOSTERS_FREEZER",
@@ -86,6 +86,10 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+
+# Execute database initialisation on startup so Gunicorn runs it automatically
+init_db()
 
 
 @app.route("/")
@@ -367,7 +371,7 @@ def log_reading():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Auto-discovery: automatically register unknown sensor IDs
+    # Dynamic auto-discovery: register any unknown sensor IDs automatically
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
@@ -398,6 +402,5 @@ def log_reading():
 
 
 if __name__ == "__main__":
-    init_db()
     print("Database initialised. Starting the web server...")
     app.run(host="0.0.0.0", port=5001, debug=True)
