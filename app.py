@@ -76,7 +76,7 @@ def init_db():
     if "display_name" not in columns:
         cursor.execute("ALTER TABLE devices ADD COLUMN display_name TEXT")
 
-    # Complete purge of legacy mock fridges
+    # Hard purge on server start
     for item in LEGACY_DEVICES:
         cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
         cursor.execute("DELETE FROM devices WHERE device_name = ?", (item,))
@@ -108,9 +108,11 @@ def get_config():
 def get_devices():
     conn = get_db_connection()
     cursor = conn.cursor()
+    # Continuous firewall: wipe mock entries if an old database file ever restores them
     for item in LEGACY_DEVICES:
         cursor.execute("DELETE FROM devices WHERE device_name = ?", (item,))
     conn.commit()
+
     cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
     rows = cursor.fetchall()
     conn.close()
@@ -206,6 +208,7 @@ def get_readings():
     for item in LEGACY_DEVICES:
         cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
     conn.commit()
+
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp
         FROM readings r
@@ -232,6 +235,7 @@ def get_latest():
     for item in LEGACY_DEVICES:
         cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
     conn.commit()
+
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, 
                COALESCE(d.device_type, 'FRIDGE') as device_type, r.temperature, r.timestamp 
@@ -261,6 +265,7 @@ def get_today():
     for item in LEGACY_DEVICES:
         cursor.execute("DELETE FROM readings WHERE device_id = ?", (item,))
     conn.commit()
+
     cursor.execute("""
         SELECT r.device_id, COALESCE(d.display_name, r.device_id) as display_name, r.temperature, r.timestamp 
         FROM readings r
@@ -376,6 +381,7 @@ def log_reading():
 
     device_id = data["device_id"].strip().upper()
     
+    # Hard block on legacy mock data
     if device_id in LEGACY_DEVICES:
         return jsonify({"status": "ignored"}), 200
 
@@ -383,7 +389,7 @@ def log_reading():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Dynamic auto-discovery: register unknown sensor IDs automatically
+    # Dynamic auto-discovery
     cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_id,))
     device_exists = cursor.fetchone()
 
@@ -402,7 +408,7 @@ def log_reading():
             (device_id, device_id, dev_type, max_order + 1),
         )
 
-    # Record incoming temperature log
+    # Record real reading
     cursor.execute(
         "INSERT INTO readings (device_id, temperature) VALUES (?, ?)",
         (device_id, temperature),
