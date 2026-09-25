@@ -87,6 +87,13 @@
         input, select, button { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 1em; }
         button { background-color: #1e88e5; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin-top: 10px; }
         button:hover { background-color: #1565c0; }
+        
+        /* Danger Zone Styles */
+        .danger-panel { margin-top: 30px; border: 1px solid #ffcdd2; background: #fffaf0; }
+        .btn-danger { background-color: #d32f2f; }
+        .btn-danger:hover { background-color: #b71c1c; }
+        .btn-secondary { background-color: #757575; }
+        .btn-secondary:hover { background-color: #616161; }
     </style>
 </head>
 <body>
@@ -150,6 +157,14 @@
 
                 <button onclick="addDevice()">Save Sensor Link</button>
             </div>
+
+            <div class="settings-panel danger-panel">
+                <h3 style="color: #c62828;">Danger Zone</h3>
+                <p style="color: #666; font-size: 0.9em; line-height: 1.4;">
+                    Clear out diagnostic history, graphs, and telemetry logs to start fresh before deploying on-site.
+                </p>
+                <button class="btn-danger" onclick="openResetModal()">Master Reset All Telemetry Data</button>
+            </div>
         </div>
     </div>
 
@@ -188,6 +203,30 @@
             <div class="alert-list-container" id="alert-list-container">
             </div>
             <button class="ack-btn" onclick="acknowledgeAllAlarms()">Acknowledge All</button>
+        </div>
+    </div>
+
+    <!-- Master Reset Confirmation Modal -->
+    <div id="reset-modal" class="modal-overlay" onclick="closeResetModal(event)">
+        <div class="modal-card" style="max-width: 480px; border-top: 6px solid #d32f2f;" onclick="event.stopPropagation()">
+            <span class="close-btn" onclick="closeResetModal(event)">&times;</span>
+            <h2 style="color: #d32f2f; margin-top: 0;">Master Data Reset</h2>
+            <p style="color: #444; font-size: 0.95em; line-height: 1.5;">
+                This action will permanently delete all temperature readings and historical telemetry logs from the database.
+            </p>
+            <div style="background: #ffebee; border-left: 4px solid #d32f2f; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+                <strong style="color: #c62828; font-size: 0.9em;">Safety Verification:</strong>
+                <p style="color: #b71c1c; font-size: 0.85em; margin: 5px 0 0 0;">
+                    To confirm this action, type <strong>DELETE</strong> into the field below:
+                </p>
+            </div>
+            <div class="form-group">
+                <input type="text" id="reset-confirm-input" placeholder="Type DELETE to confirm" style="text-align: center; font-weight: bold; letter-spacing: 1px;">
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn-secondary" style="flex: 1;" onclick="closeResetModal()">Cancel</button>
+                <button class="btn-danger" style="flex: 1;" onclick="confirmMasterReset()">Wipe Telemetry</button>
+            </div>
         </div>
     </div>
 
@@ -577,6 +616,51 @@
 
             alert(`Successfully linked ${hardwareId} to "${displayName}".`);
             fetchTelemetry(); 
+        }
+
+        function openResetModal() {
+            const input = document.getElementById('reset-confirm-input');
+            if (input) input.value = '';
+            document.getElementById('reset-modal').classList.add('active');
+        }
+
+        function closeResetModal(event) {
+            if (event) event.stopPropagation();
+            document.getElementById('reset-modal').classList.remove('active');
+        }
+
+        async function confirmMasterReset() {
+            const input = document.getElementById('reset-confirm-input');
+            const confirmVal = input ? input.value.trim() : '';
+
+            if (confirmVal !== 'DELETE') {
+                alert('Verification failed. You must type DELETE into the text field.');
+                return;
+            }
+
+            if (!confirm('Final Confirmation: Are you completely certain you want to wipe all stored temperature logs?')) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/system/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ confirmation: 'DELETE' })
+                });
+
+                const result = await res.json();
+                if (res.ok) {
+                    alert('Telemetry logs wiped successfully. System ready for deployment.');
+                    closeResetModal();
+                    fetchTelemetry();
+                } else {
+                    alert('Failed to reset: ' + (result.message || 'Unknown error'));
+                }
+            } catch (err) {
+                console.error('Reset error:', err);
+                alert('Connection failure. Could not reach server to reset database.');
+            }
         }
 
         async function fetchTelemetry() {

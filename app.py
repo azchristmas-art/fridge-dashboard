@@ -382,6 +382,25 @@ def log_reading():
     return jsonify({"status": "success"}), 201
 
 
+@app.route("/api/system/reset", methods=["POST"])
+def reset_data():
+    data = request.get_json(silent=True) or {}
+    if data.get("confirmation") != "DELETE":
+        return jsonify({"status": "error", "message": "Verification text incorrect."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM readings")
+    try:
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='readings'")
+    except sqlite3.OperationalError:
+        pass
+
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "message": "Telemetry database cleared successfully."})
+
+
 if __name__ == "__main__":
     print("Database initialised. Starting the web server...")
     app.run(host="0.0.0.0", port=5001, debug=True)
