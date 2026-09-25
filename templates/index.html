@@ -21,11 +21,12 @@
         h1 { color: #333; margin-top: 0; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-bottom: 25px; }
         
         /* Primary Status Grid */
-        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
         .summary-card { padding: 20px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e0e0e0; transition: transform 0.2s, box-shadow 0.2s; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.04); background: white; overflow: hidden; }
         .summary-card:hover { transform: translateY(-4px); box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
         .summary-info { flex: 1; min-width: 0; margin-right: 15px; }
-        .summary-device { font-weight: bold; font-size: 1.1em; color: #2c3e50; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .summary-device { font-weight: bold; font-size: 1.2em; color: #2c3e50; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .summary-hw-id { font-size: 0.8em; color: #888; font-weight: 600; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px; }
         .summary-temp { font-size: 1.6em; font-weight: bold; }
         .summary-pill { flex-shrink: 0; padding: 6px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
         
@@ -77,13 +78,14 @@
         .diag-stat-primary { font-size: 1.1em; margin-bottom: 4px; }
         .diag-stat-secondary { font-size: 0.9em; color: #777; }
         
-        .settings-panel { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; }
-        .device-list { list-style: none; padding: 0; }
+        .settings-panel { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; }
+        .device-list { list-style: none; padding: 0; margin-top: 15px; }
         .device-item { padding: 15px; background: #f8f9fa; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
         .device-item:active { cursor: grabbing; }
-        .add-device-form { display: flex; gap: 10px; margin-top: 20px; }
-        input, select, button { padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
-        button { background-color: #1e88e5; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 6px; color: #333; }
+        input, select, button { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 1em; }
+        button { background-color: #1e88e5; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; margin-top: 10px; }
         button:hover { background-color: #1565c0; }
     </style>
 </head>
@@ -119,18 +121,34 @@
             <h1>Device Configuration</h1>
             <div class="settings-panel">
                 <h3>System Layout</h3>
-                <p style="color: #666; font-size: 0.9em;">Drag and drop units below to instantly reorder your live dashboard.</p>
+                <p style="color: #666; font-size: 0.9em;">Drag and drop units below to reorder your live dashboard tiles.</p>
                 <ul id="sortable-list" class="device-list"></ul>
-                <h3 style="margin-top: 30px;">Add New Unit</h3>
-                <div class="add-device-form">
-                    <input type="text" id="new-device-name" placeholder="E.g. COLD_ROOM_1" required style="flex: 1;">
-                    <select id="new-device-type">
-                        <option value="FRIDGE">Standard Fridge</option>
-                        <option value="FISH">Fish Fridge</option>
-                        <option value="FREEZER">Freezer</option>
+                
+                <h3 style="margin-top: 35px; border-top: 1px solid #eee; padding-top: 25px;">Link Sensor to Friendly Name</h3>
+                <p style="color: #666; font-size: 0.9em; margin-bottom: 20px;">Select a detected hardware sensor ID (e.g. SENSOR_01, FRIDGE_01) and assign its friendly kitchen location.</p>
+                
+                <div class="form-group">
+                    <label for="sensor-select">Discovered Hardware Sensor:</label>
+                    <select id="sensor-select" onchange="onSensorSelectChange()">
+                        <option value="">-- Select Discovered Sensor ID --</option>
                     </select>
-                    <button onclick="addDevice()">Add Unit</button>
                 </div>
+
+                <div class="form-group">
+                    <label for="new-device-name">Friendly Kitchen Name:</label>
+                    <input type="text" id="new-device-name" placeholder="E.g. Walk-In Dairy, Raw Meat Fridge" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="new-device-type">Storage Category:</label>
+                    <select id="new-device-type">
+                        <option value="FRIDGE">Standard Fridge (&le; 5.9&deg;C)</option>
+                        <option value="FISH">Fish Fridge (&le; -3.0&deg;C)</option>
+                        <option value="FREEZER">Freezer (&le; -10.0&deg;C)</option>
+                    </select>
+                </div>
+
+                <button onclick="addDevice()">Save Sensor Link</button>
             </div>
         </div>
     </div>
@@ -166,7 +184,7 @@
     <div id="multi-alert-overlay" class="modal-overlay">
         <div class="alert-modal-card">
             <h2>Active Temperature Alerts</h2>
-            <p>The following units have breached safe thresholds.</p>
+            <p>The following units have breached safe thresholds continuously for over 2 hours.</p>
             <div class="alert-list-container" id="alert-list-container">
             </div>
             <button class="ack-btn" onclick="acknowledgeAllAlarms()">Acknowledge All</button>
@@ -174,7 +192,7 @@
     </div>
 
     <script>
-        let globalConfig = {};
+        let globalConfig = { THRESHOLD_FRIDGE: 5.9, THRESHOLD_FISH: -3.0, THRESHOLD_FREEZER: -10.0, ALERT_DELAY_HOURS: 2 };
         window.latestData = [];
         window.historyData = [];
         window.devicesList = [];
@@ -186,6 +204,12 @@
         
         let acknowledgedAlarms = new Set();
         let currentUnacknowledgedAlerts = [];
+
+        function parseDbTimestamp(tsStr) {
+            if (!tsStr) return new Date();
+            const normalised = tsStr.replace(' ', 'T');
+            return new Date(normalised.endsWith('Z') ? normalised : normalised + 'Z');
+        }
 
         function switchView(viewId, element) {
             document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
@@ -251,7 +275,7 @@
                         <span class="alert-item-name">${alert.name}</span>
                         <div class="alert-item-details">
                             <span class="alert-item-temp">${alert.temp} °C</span>
-                            <span>Breached for ${alert.duration}</span>
+                            <span>Breached continuously for ${alert.duration}</span>
                         </div>
                     </div>
                 `;
@@ -312,6 +336,7 @@
             let diagnostics = [];
             window.devicesList.forEach(dev => {
                 const deviceName = dev.device_name;
+                const displayName = dev.display_name || deviceName;
                 const deviceHistory = window.historyData.filter(d => d.device_id === deviceName);
                 
                 let threshold = globalConfig.THRESHOLD_FRIDGE;
@@ -337,7 +362,7 @@
                 }
 
                 diagnostics.push({
-                    name: deviceName,
+                    name: displayName,
                     type: dev.device_type,
                     count: breachCount,
                     totalMins: totalBreachTimeMins
@@ -377,6 +402,7 @@
             const dev = window.devicesList.find(d => d.device_name === deviceName);
             if (!dev) return;
 
+            const displayName = dev.display_name || deviceName;
             let threshold = globalConfig.THRESHOLD_FRIDGE;
             if (dev.device_type === "FISH") threshold = globalConfig.THRESHOLD_FISH;
             else if (dev.device_type === "FREEZER") threshold = globalConfig.THRESHOLD_FREEZER;
@@ -399,22 +425,33 @@
                 let sum = dataPoints.reduce((a, b) => a + b, 0);
                 avg = dataPoints.length ? (sum / dataPoints.length).toFixed(1) : "--";
 
-                const delayLimit = new Date();
-                delayLimit.setHours(delayLimit.getHours() - globalConfig.ALERT_DELAY_HOURS);
-                const recentReadings = deviceHistory.filter(d => new Date(d.timestamp.replace(' ', 'T')) > delayLimit);
-                if (recentReadings.length > 0 && recentReadings.every(d => d.temperature > threshold)) {
-                    isAlarm = true;
+                if (deviceHistory.length > 0 && reading.temperature > threshold) {
+                    let streakStart = null;
+                    for (let i = deviceHistory.length - 1; i >= 0; i--) {
+                        if (deviceHistory[i].temperature > threshold) {
+                            streakStart = parseDbTimestamp(deviceHistory[i].timestamp);
+                        } else {
+                            break;
+                        }
+                    }
+                    if (streakStart) {
+                        const elapsedMins = Math.floor((new Date() - streakStart) / 60000);
+                        const requiredMins = (globalConfig.ALERT_DELAY_HOURS || 2) * 60;
+                        if (elapsedMins >= requiredMins) {
+                            isAlarm = true;
+                        }
+                    }
                 }
 
-                document.getElementById('modal-title').innerText = deviceName;
-                document.getElementById('modal-title').title = deviceName;
+                document.getElementById('modal-title').innerText = displayName;
+                document.getElementById('modal-title').title = `${displayName} (${deviceName})`;
                 document.getElementById('modal-time').innerText = "Live Today";
-                document.getElementById('modal-temp').innerText = `${reading.temperature} °C`;
+                document.getElementById('modal-temp').innerText = `${reading.temperature.toFixed(1)} °C`;
                 document.getElementById('modal-temp').style.color = isAlarm ? '#c62828' : '#1e88e5';
 
             } else {
-                document.getElementById('modal-title').innerText = `${deviceName} (${currentModalTab === 'week' ? '7 Day Summary' : '30 Day Summary'})`;
-                document.getElementById('modal-title').title = deviceName;
+                document.getElementById('modal-title').innerText = `${displayName} (${currentModalTab === 'week' ? '7 Day Summary' : '30 Day Summary'})`;
+                document.getElementById('modal-title').title = displayName;
                 document.getElementById('modal-time').innerText = "Historical Averages";
                 
                 try {
@@ -427,7 +464,7 @@
                         
                         max = Math.max(...historyStats.map(d => d.high)).toFixed(1);
                         min = Math.min(...historyStats.map(d => d.low)).toFixed(1);
-                        let sum = historyStats.reduce((a, b) => a + b.avg, 0);
+                        let sum = historyStats.reduce((a, b) => a + b, 0);
                         avg = (sum / historyStats.length).toFixed(1);
                     } else {
                         max = "--"; min = "--"; avg = "--";
@@ -491,16 +528,54 @@
             }
         });
 
-        async function addDevice() {
+        function onSensorSelectChange() {
+            const selectEl = document.getElementById('sensor-select');
+            const selectedId = selectEl.value;
             const nameInput = document.getElementById('new-device-name');
             const typeInput = document.getElementById('new-device-type');
-            if (!nameInput.value) return alert('Please enter a device name');
-            await fetch('/api/devices/add', {
+
+            if (!selectedId) {
+                nameInput.value = '';
+                return;
+            }
+
+            const dev = window.devicesList.find(d => d.device_name === selectedId);
+            if (dev) {
+                nameInput.value = (dev.display_name && dev.display_name !== dev.device_name) ? dev.display_name : '';
+                typeInput.value = dev.device_type || 'FRIDGE';
+            }
+        }
+
+        async function addDevice() {
+            const selectEl = document.getElementById('sensor-select');
+            const nameInput = document.getElementById('new-device-name');
+            const typeInput = document.getElementById('new-device-type');
+
+            const hardwareId = selectEl.value;
+            const displayName = nameInput.value.trim();
+            const devType = typeInput.value;
+
+            if (!hardwareId) {
+                alert('Please select a hardware sensor from the dropdown list.');
+                return;
+            }
+
+            if (!displayName) {
+                alert('Please enter a friendly name for this sensor.');
+                return;
+            }
+
+            await fetch('/api/devices/rename', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device_name: nameInput.value.trim(), device_type: typeInput.value })
+                body: JSON.stringify({
+                    device_name: hardwareId,
+                    display_name: displayName,
+                    device_type: devType
+                })
             });
-            nameInput.value = '';
+
+            alert(`Successfully linked ${hardwareId} to "${displayName}".`);
             fetchTelemetry(); 
         }
 
@@ -522,22 +597,40 @@
                     renderDiagnostics();
                 }
 
+                // Populate Sensor Dropdown in Settings
+                const selectEl = document.getElementById('sensor-select');
+                const previousSelected = selectEl.value;
+                selectEl.innerHTML = '<option value="">-- Select Discovered Sensor ID --</option>';
+                window.devicesList.forEach(dev => {
+                    const label = (dev.display_name && dev.display_name !== dev.device_name)
+                        ? `${dev.device_name} — currently "${dev.display_name}"`
+                        : `${dev.device_name} (Unassigned)`;
+                    selectEl.innerHTML += `<option value="${dev.device_name}">${label}</option>`;
+                });
+                if (previousSelected) selectEl.value = previousSelected;
+
+                // Populate Sortable Layout List
                 const listEl = document.getElementById('sortable-list');
                 listEl.innerHTML = '';
                 window.devicesList.forEach(dev => {
+                    const display = dev.display_name || dev.device_name;
                     listEl.innerHTML += `<li class="device-item" data-id="${dev.device_name}">
-                        <strong>${dev.device_name}</strong>
-                        <span style="color: grey; font-size: 0.9em;">(${dev.device_type})</span>
+                        <div>
+                            <strong>${display}</strong>
+                            <span style="color: grey; font-size: 0.85em; margin-left: 8px;">(${dev.device_name})</span>
+                        </div>
+                        <span style="color: #666; font-size: 0.85em; font-weight: bold;">${dev.device_type}</span>
                     </li>`;
                 });
 
+                // Populate Live Summary Bar
                 const summaryBar = document.getElementById('summary-bar');
                 let summaryHtml = '';
-                
                 currentUnacknowledgedAlerts = [];
 
                 window.devicesList.forEach(dev => {
                     const deviceName = dev.device_name;
+                    const displayName = dev.display_name || deviceName;
                     const reading = window.latestData.find(r => r.device_id === deviceName);
                     if (!reading) return;
 
@@ -549,59 +642,63 @@
                     let statusClass = 'status-green';
                     let statusPill = 'OK';
 
-                    if (reading.temperature > threshold) {
+                    const deviceHistory = window.historyData.filter(d => d.device_id === deviceName);
+                    
+                    // Continuous unbroken breach calculation
+                    let isAlarm = false;
+                    let durationStr = "--";
+
+                    if (deviceHistory.length > 0 && reading.temperature > threshold) {
+                        let streakStart = null;
+                        for (let i = deviceHistory.length - 1; i >= 0; i--) {
+                            if (deviceHistory[i].temperature > threshold) {
+                                streakStart = parseDbTimestamp(deviceHistory[i].timestamp);
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if (streakStart) {
+                            const diffMs = new Date() - streakStart;
+                            const diffMins = Math.floor(diffMs / 60000);
+                            const diffHrs = Math.floor(diffMins / 60);
+                            const remainingMins = diffMins % 60;
+                            durationStr = diffHrs > 0 ? `${diffHrs}h ${remainingMins}m` : `${remainingMins}m`;
+
+                            const requiredMins = (globalConfig.ALERT_DELAY_HOURS || 2) * 60;
+                            if (diffMins >= requiredMins) {
+                                isAlarm = true;
+                            }
+                        }
+                    }
+
+                    if (isAlarm) {
                         statusClass = 'status-red';
                         statusPill = 'ALERT';
-                    } else if (reading.temperature >= (threshold - warningBuffer)) {
-                        statusClass = 'status-amber';
-                        statusPill = 'WARN';
-                    }
-                    
-                    const deviceHistory = window.historyData.filter(d => d.device_id === deviceName);
-                    const delayLimit = new Date();
-                    delayLimit.setHours(delayLimit.getHours() - globalConfig.ALERT_DELAY_HOURS);
-                    const recentReadings = deviceHistory.filter(d => new Date(d.timestamp.replace(' ', 'T')) > delayLimit);
-                    
-                    let isAlarm = false;
-                    if (recentReadings.length > 0 && recentReadings.every(d => d.temperature > threshold)) {
-                        isAlarm = true;
-                    }
-                    
-                    if (isAlarm) {
-                        if (!acknowledgedAlarms.has(deviceName)) {
-                            let breachStartTime = null;
-                            for (let i = deviceHistory.length - 1; i >= 0; i--) {
-                                if (deviceHistory[i].temperature > threshold) {
-                                    breachStartTime = new Date(deviceHistory[i].timestamp.replace(' ', 'T'));
-                                } else {
-                                    break;
-                                }
-                            }
-                            
-                            let durationStr = "--";
-                            if (breachStartTime) {
-                                let diffMs = new Date() - breachStartTime;
-                                let diffMins = Math.floor(diffMs / 60000);
-                                let diffHrs = Math.floor(diffMins / 60);
-                                let remainingMins = diffMins % 60;
-                                durationStr = diffHrs > 0 ? `${diffHrs}h ${remainingMins}m` : `${remainingMins}m`;
-                            }
-                            
+
+                        if (!acknowledgedAlarms.has(displayName)) {
                             currentUnacknowledgedAlerts.push({
-                                name: deviceName,
-                                temp: reading.temperature,
+                                name: displayName,
+                                temp: reading.temperature.toFixed(1),
                                 duration: durationStr
                             });
                         }
+                    } else if (reading.temperature > threshold) {
+                        statusClass = 'status-amber';
+                        statusPill = 'DEFROST';
+                    } else if (reading.temperature >= (threshold - warningBuffer)) {
+                        statusClass = 'status-amber';
+                        statusPill = 'WARN';
                     } else {
-                        acknowledgedAlarms.delete(deviceName);
+                        acknowledgedAlarms.delete(displayName);
                     }
 
                     summaryHtml += `
                         <div class="summary-card ${statusClass}" onclick="openModal('${deviceName}')">
                             <div class="summary-info">
-                                <div class="summary-device" title="${deviceName}">${deviceName}</div>
-                                <div class="summary-temp">${reading.temperature} °C</div>
+                                <div class="summary-device" title="${displayName}">${displayName}</div>
+                                <div class="summary-hw-id">${deviceName}</div>
+                                <div class="summary-temp">${reading.temperature.toFixed(1)} °C</div>
                             </div>
                             <span class="summary-pill">${statusPill}</span>
                         </div>
