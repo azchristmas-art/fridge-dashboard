@@ -1,0 +1,17 @@
+[Unit]
+Description=LoRa to Render Gateway Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=adamchristmas
+WorkingDirectory=/home/adamchristmas
+ExecStart=/usr/bin/python3 /home/adamchristmas/lora_bridge.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

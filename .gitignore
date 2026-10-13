@@ -1,0 +1,19 @@
+# ----------------------------------------------------
+# Boulevard Fridge Monitor - Git Security Blacklist
+# ----------------------------------------------------
+
+# 1. Private Google Service Account robot key (Contains private encryption keys)
+credentials.json
+
+# 2. Private Environment Variables (Contains spreadsheet IDs and local thresholds)
+.env
+
+# 3. Local SQLite Database (Local storage should stay on this machine, not in the cloud)
+fridge_monitor.db
+
+# 4. Python runtime cache and pre-compiled bytecode (Temporary system clutter)
+__pycache__/
+*.pyc
+
+# 5. macOS operating system desktop settings
+.DS_Store
