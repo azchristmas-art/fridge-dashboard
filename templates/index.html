@@ -387,7 +387,7 @@
             let isAlarm = false;
 
             if (currentModalTab === 'today') {
-                const reading = window.latestData.find(r => r.device_id === deviceName);
+                const reading = window.latestData[deviceName];
                 if (!reading) return;
 
                 const deviceHistory = window.historyData.filter(d => d.device_id === deviceName);
@@ -538,7 +538,7 @@
 
                 window.devicesList.forEach(dev => {
                     const deviceName = dev.device_name;
-                    const reading = window.latestData.find(r => r.device_id === deviceName);
+                    const reading = window.latestData[deviceName];
                     if (!reading) return;
 
                     let threshold = globalConfig.THRESHOLD_FRIDGE;
