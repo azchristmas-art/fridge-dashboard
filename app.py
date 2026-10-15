@@ -1,7 +1,9 @@
 import os
 import sqlite3
 import threading
-from datetime import datetime, timezone
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime, timezone, timedelta
 import gspread
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -14,6 +16,10 @@ DB_FILE = "fridge_monitor.db"
 
 # Force Flask to reload HTML templates immediately whenever modified
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# --- IN-MEMORY CACHES FOR BACKGROUND TASKS ---
+LAST_SUMMARY_DATE = datetime.now().strftime("%Y-%m-%d") # Prevents running the daily summary on mid-day reboots
+LAST_ALERT_SENT = {} # Tracks alert cooldowns per device
 
 
 # --- CACHE CONTROL ---
@@ -70,18 +76,178 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 init_db()
 
 
-# --- ASYNCHRONOUS GOOGLE SHEET TELEMETRY STREAM ---
-def async_append_reading_to_sheet(device_id, temperature, timestamp_str):
-    """Appends live temperature telemetry to the 'Daily Raw Data' tab without slowing local HTTP requests."""
+# --- PHASE 3: EMAIL ALERT LOGIC ---
+def send_alert_email(display_name, temp, threshold):
+    """Fires a critical alert email using Google SMTP."""
+    try:
+        sender = os.getenv("EMAIL_USER")
+        password = os.getenv("EMAIL_PASS")
+        receiver = "theboulevardselsey@gmail.com"
+
+        if not sender or not password:
+            print("Warning: Email credentials (EMAIL_USER / EMAIL_PASS) not configured in .env")
+            return
+
+        msg = EmailMessage()
+        msg.set_content(f"CRITICAL ALERT: {display_name} has been running above {threshold}°C for over 20 minutes.\n\nCurrent Temperature: {temp}°C\n\nPlease check the unit immediately to prevent stock loss.")
+        msg["Subject"] = f"CRITICAL ALERT: {display_name} is at {temp}°C"
+        msg["From"] = sender
+        msg["To"] = receiver
+
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
+        server.send_message(msg)
+        server.quit()
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Alert email dispatched successfully for {display_name}")
+    except Exception as e:
+        print(f"Failed to send email alert: {e}")
+
+
+def check_thresholds_and_alert(device_id, current_temp):
+    """Evaluates the last 20 minutes of telemetry to prevent false alarms before emailing."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT display_name, device_type FROM devices WHERE device_name = ?", (device_id,))
+        device = cursor.fetchone()
+        if not device:
+            conn.close()
+            return
+
+        display_name = device["display_name"]
+        device_type = device["device_type"]
+        
+        # Determine safety limit based on type
+        threshold = float(os.getenv("THRESHOLD_FREEZER", -15.0)) if device_type == 'FREEZER' else float(os.getenv("THRESHOLD_FRIDGE", 8.0))
+
+        if current_temp <= threshold:
+            conn.close()
+            return # Unit is running at a safe temperature
+
+        # If warm, check if the lowest temperature in the last 20 minutes was STILL above the threshold
+        twenty_mins_ago = (datetime.now() - timedelta(minutes=20)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("""
+            SELECT MIN(temperature) as min_temp, COUNT(id) as count
+            FROM readings
+            WHERE device_id = ? AND timestamp >= ?
+        """, (device_id, twenty_mins_ago))
+        stats = cursor.fetchone()
+        conn.close()
+
+        # Needs at least 2 readings in the window to prove a sustained excursion
+        if stats and stats["count"] >= 2 and stats["min_temp"] > threshold:
+            now = datetime.now()
+            last_alert = LAST_ALERT_SENT.get(device_id)
+            
+            # Apply a 1-hour cooldown so the kitchen isn't bombarded with emails
+            if not last_alert or (now - last_alert).total_seconds() >= 3600:
+                send_alert_email(display_name, current_temp, threshold)
+                LAST_ALERT_SENT[device_id] = now
+                
+    except Exception as e:
+        print(f"Error checking temperature thresholds: {e}")
+
+
+# --- PHASE 4: 24-HOUR COMPLIANCE SUMMARY ---
+def process_midnight_summary():
+    """Runs exactly once just after midnight to calculate the previous 24h compliance metrics."""
+    global LAST_SUMMARY_DATE
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    # If the date has changed and we are in the midnight hour
+    if today_str != LAST_SUMMARY_DATE and now.hour == 0:
+        yesterday = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+        date_formatted = (now - timedelta(days=1)).strftime('%d/%m/%Y')
+
+        try:
+            summary_sheet = get_google_sheet("24h Summary")
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
+            devices = cursor.fetchall()
+
+            for device in devices:
+                device_id = device["device_name"]
+                display_name = device["display_name"]
+                device_type = device["device_type"]
+                threshold = float(os.getenv("THRESHOLD_FREEZER", -15.0)) if device_type == 'FREEZER' else float(os.getenv("THRESHOLD_FRIDGE", 8.0))
+
+                # 1. Get Daily Min, Max, Average
+                cursor.execute("""
+                    SELECT MIN(temperature) as min_temp, MAX(temperature) as max_temp, AVG(temperature) as avg_temp
+                    FROM readings WHERE device_id = ? AND timestamp LIKE ?
+                """, (device_id, f"{yesterday}%"))
+                stats = cursor.fetchone()
+
+                if stats["min_temp"] is None:
+                    continue # Unit was offline or not recorded yesterday
+
+                # 2. Get Morning Temp (~08:00)
+                cursor.execute("""
+                    SELECT temperature FROM readings
+                    WHERE device_id = ? AND timestamp LIKE ? AND time(timestamp) >= '08:00:00'
+                    ORDER BY timestamp ASC LIMIT 1
+                """, (device_id, f"{yesterday}%"))
+                m_temp = cursor.fetchone()
+                morning_temp = round(m_temp["temperature"], 1) if m_temp else "N/A"
+
+                # 3. Get Evening Temp (~20:00)
+                cursor.execute("""
+                    SELECT temperature FROM readings
+                    WHERE device_id = ? AND timestamp LIKE ? AND time(timestamp) <= '20:00:00'
+                    ORDER BY timestamp DESC LIMIT 1
+                """, (device_id, f"{yesterday}%"))
+                e_temp = cursor.fetchone()
+                evening_temp = round(e_temp["temperature"], 1) if e_temp else "N/A"
+
+                min_temp = round(stats["min_temp"], 1)
+                max_temp = round(stats["max_temp"], 1)
+                avg_temp = round(stats["avg_temp"], 1)
+                compliance = "ATTENTION" if max_temp > threshold else "PASS"
+
+                # 4. Calculate Excursion Duration (Assuming 10-minute intervals = 10 mins per breach)
+                cursor.execute("""
+                    SELECT COUNT(*) as exc_count FROM readings
+                    WHERE device_id = ? AND timestamp LIKE ? AND temperature > ?
+                """, (device_id, f"{yesterday}%", threshold))
+                exc_count = cursor.fetchone()["exc_count"]
+                excursion_time = f"{exc_count * 10} mins" if exc_count > 0 else "0 mins"
+
+                # 5. Append to Google Sheet Master Tab
+                row = [
+                    date_formatted, display_name, device_id,
+                    morning_temp, evening_temp, max_temp, min_temp, avg_temp,
+                    compliance, excursion_time, ""
+                ]
+                summary_sheet.append_row(row)
+
+            conn.close()
+            LAST_SUMMARY_DATE = today_str 
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 24h Summary generated and pushed for {yesterday}")
+        except Exception as e:
+            print(f"Failed to generate midnight summary: {e}")
+
+
+# --- MASTER BACKGROUND PIPELINE ---
+def background_telemetry_pipeline(device_id, temperature, timestamp_str):
+    """Handles all slow external network requests asynchronously to keep the local HTTP API fast."""
+    # 1. Stream raw log to Sheets
     try:
         daily_sheet = get_google_sheet("Daily Raw Data")
         daily_sheet.append_row([timestamp_str, device_id, temperature])
     except Exception as err:
         print(f"Warning: Could not stream telemetry to Google Sheets: {err}")
+
+    # 2. Check for critical excursions
+    check_thresholds_and_alert(device_id, temperature)
+
+    # 3. Process midnight EHO paperwork if required
+    process_midnight_summary()
 
 
 # --- WEB DASHBOARD ROUTES ---
@@ -94,9 +260,9 @@ def index():
 def get_config():
     return jsonify(
         {
-            "THRESHOLD_FRIDGE": float(os.getenv("THRESHOLD_FRIDGE", 6.0)),
+            "THRESHOLD_FRIDGE": float(os.getenv("THRESHOLD_FRIDGE", 8.0)),
             "THRESHOLD_FISH": float(os.getenv("THRESHOLD_FISH", -3.0)),
-            "THRESHOLD_FREEZER": float(os.getenv("THRESHOLD_FREEZER", -10.0)),
+            "THRESHOLD_FREEZER": float(os.getenv("THRESHOLD_FREEZER", -15.0)),
             "ALERT_DELAY_HOURS": int(os.getenv("ALERT_DELAY_HOURS", 2)),
         }
     )
@@ -143,13 +309,11 @@ def add_device():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Check if exists
         cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_name,))
         if cursor.fetchone():
             conn.close()
             return jsonify({"status": "success"})
             
-        # Get next sort order
         cursor.execute("SELECT MAX(sort_order) as max_order FROM devices")
         result = cursor.fetchone()
         new_order = (result["max_order"] or 0) + 1
@@ -268,7 +432,7 @@ def get_today():
             MAX(temperature) as max_temp,
             COUNT(*) as reading_count
         FROM readings
-        WHERE DATE(timestamp) = DATE('now')
+        WHERE DATE(timestamp) = DATE('now', 'localtime')
         GROUP BY device_id
         """
     )
@@ -369,9 +533,9 @@ def log_reading():
     conn.commit()
     conn.close()
 
-    # 2. Asynchronous background stream to Google Sheet 'Daily Raw Data'
+    # 2. Asynchronous background pipeline (Sheets Sync, Alerts, Midnight Summary)
     threading.Thread(
-        target=async_append_reading_to_sheet,
+        target=background_telemetry_pipeline,
         args=(device_id, temperature, now_str),
         daemon=True,
     ).start()
