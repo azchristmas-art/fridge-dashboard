@@ -56,6 +56,17 @@ def init_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_name TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            device_type TEXT NOT NULL DEFAULT 'FRIDGE',
+            sort_order INTEGER DEFAULT 999
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -91,37 +102,35 @@ def get_config():
     )
 
 
-# --- UNIT MANAGEMENT (GOOGLE SHEETS MASTER) ---
+# --- UNIT MANAGEMENT (LOCAL SQLITE MASTER) ---
 @app.route("/api/devices", methods=["GET"])
 def get_devices():
-    """Fetches the master unit registry directly from Google Sheets."""
+    """Fetches the master unit registry directly from local SQLite."""
     try:
-        sheet = get_google_sheet("Units")
-        records = sheet.get_all_records()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM devices ORDER BY sort_order ASC")
+        rows = cursor.fetchall()
+        conn.close()
+        
         results = []
-        for row in records:
-            item = {
-                "id": row.get("ID", ""),
-                "device_name": str(row.get("Device Name", "")).strip(),
-                "display_name": str(row.get("Display Name", "")).strip(),
-                "device_type": str(row.get("Device Type", "FRIDGE")).strip().upper(),
-                "sort_order": row.get("Sort Order", 0),
-            }
-            if item["device_name"]:
-                results.append(item)
-
-        results.sort(
-            key=lambda x: int(x["sort_order"]) if str(x["sort_order"]).isdigit() else 999
-        )
+        for row in rows:
+            results.append({
+                "id": row["id"],
+                "device_name": row["device_name"],
+                "display_name": row["display_name"],
+                "device_type": row["device_type"],
+                "sort_order": row["sort_order"],
+            })
         return jsonify(results)
     except Exception as err:
-        print(f"Error fetching devices from Google Sheets: {err}")
+        print(f"Error fetching devices from SQLite: {err}")
         return jsonify([])
 
 
 @app.route("/api/devices/add", methods=["POST"])
 def add_device():
-    """Adds a new unit to the Google Sheet registry."""
+    """Adds a new unit to the local SQLite registry."""
     data = request.get_json(silent=True)
     if not data or "device_name" not in data or "device_type" not in data:
         return jsonify({"status": "error", "message": "Missing device parameters"}), 400
@@ -131,25 +140,35 @@ def add_device():
     device_type = data["device_type"].strip().upper()
 
     try:
-        sheet = get_google_sheet("Units")
-        records = sheet.get_all_records()
-
-        for row in records:
-            if str(row.get("Device Name", "")).strip().upper() == device_name:
-                return jsonify({"status": "success"})
-
-        new_order = len(records) + 1
-        new_id = len(records) + 1
-        sheet.append_row([new_id, device_name, display_name, device_type, new_order])
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if exists
+        cursor.execute("SELECT id FROM devices WHERE device_name = ?", (device_name,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({"status": "success"})
+            
+        # Get next sort order
+        cursor.execute("SELECT MAX(sort_order) as max_order FROM devices")
+        result = cursor.fetchone()
+        new_order = (result["max_order"] or 0) + 1
+        
+        cursor.execute(
+            "INSERT INTO devices (device_name, display_name, device_type, sort_order) VALUES (?, ?, ?, ?)",
+            (device_name, display_name, device_type, new_order)
+        )
+        conn.commit()
+        conn.close()
         return jsonify({"status": "success"})
     except Exception as err:
-        print(f"Error writing new device to Google Sheets: {err}")
+        print(f"Error writing new device to SQLite: {err}")
         return jsonify({"status": "error", "message": str(err)}), 500
 
 
 @app.route("/api/devices/rename", methods=["POST"])
 def rename_device():
-    """Updates unit labels and type rules in Google Sheets."""
+    """Updates unit labels and type rules in local SQLite."""
     data = request.get_json(silent=True)
     if not data or "device_name" not in data or "display_name" not in data:
         return jsonify({"status": "error", "message": "Missing parameters"}), 400
@@ -159,43 +178,51 @@ def rename_device():
     device_type = data.get("device_type")
 
     try:
-        sheet = get_google_sheet("Units")
-        records = sheet.get_all_records()
-
-        for i, row in enumerate(records):
-            if str(row.get("Device Name", "")).strip().upper() == device_name:
-                row_num = i + 2
-                sheet.update_cell(row_num, 3, display_name)
-                if device_type:
-                    sheet.update_cell(row_num, 4, device_type.strip().upper())
-                break
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if device_type:
+            cursor.execute(
+                "UPDATE devices SET display_name = ?, device_type = ? WHERE device_name = ?",
+                (display_name, device_type.strip().upper(), device_name)
+            )
+        else:
+             cursor.execute(
+                "UPDATE devices SET display_name = ? WHERE device_name = ?",
+                (display_name, device_name)
+            )
+            
+        conn.commit()
+        conn.close()
         return jsonify({"status": "success"})
     except Exception as err:
-        print(f"Error updating device in Google Sheets: {err}")
+        print(f"Error updating device in SQLite: {err}")
         return jsonify({"status": "error", "message": str(err)}), 500
 
 
 @app.route("/api/devices/reorder", methods=["POST"])
 def reorder_devices():
-    """Updates the display sort order for units in Google Sheets."""
+    """Updates the display sort order for units in local SQLite."""
     data = request.get_json(silent=True)
     if not data or "order" not in data:
         return jsonify({"status": "error", "message": "Missing order array"}), 400
 
     order_list = data["order"]
     try:
-        sheet = get_google_sheet("Units")
-        records = sheet.get_all_records()
-
-        for i, row in enumerate(records):
-            name = str(row.get("Device Name", "")).strip().upper()
-            if name in order_list:
-                new_idx = order_list.index(name) + 1
-                row_num = i + 2
-                sheet.update_cell(row_num, 5, new_idx)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        for idx, name in enumerate(order_list):
+            cursor.execute(
+                "UPDATE devices SET sort_order = ? WHERE device_name = ?",
+                (idx + 1, name.strip().upper())
+            )
+            
+        conn.commit()
+        conn.close()
         return jsonify({"status": "success"})
     except Exception as err:
-        print(f"Error reordering devices in Google Sheets: {err}")
+        print(f"Error reordering devices in SQLite: {err}")
         return jsonify({"status": "error", "message": str(err)}), 500
 
 

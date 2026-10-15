@@ -510,7 +510,7 @@
                     fetch('/api/config'),
                     fetch('/api/devices'),
                     fetch('/api/latest'),
-                    fetch('/api/today')
+                    fetch('/api/history')
                 ]);
                 
                 globalConfig = await configRes.json();
@@ -600,7 +600,7 @@
                     summaryHtml += `
                         <div class="summary-card ${statusClass}" onclick="openModal('${deviceName}')">
                             <div class="summary-info">
-                                <div class="summary-device" title="${deviceName}">${deviceName}</div>
+                                <div class="summary-device" title="${deviceName}">${dev.display_name || deviceName}</div>
                                 <div class="summary-temp">${reading.temperature} °C</div>
                             </div>
                             <span class="summary-pill">${statusPill}</span>

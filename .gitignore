@@ -17,3 +17,4 @@ __pycache__/
 
 # 5. macOS operating system desktop settings
 .DS_Store
+boulevard-system-*.json
